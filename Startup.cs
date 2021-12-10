@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
@@ -31,6 +32,7 @@ namespace demo
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers(options => options.EnableEndpointRouting = false);
+            services.AddSwaggerGenNewtonsoftSupport();
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo
@@ -150,10 +152,51 @@ namespace demo
                     setMethodBuilder.GetILGenerator().Emit(OpCodes.Ret);
                     newProperty.SetSetMethod(setMethodBuilder);
                 }
+
+                var customAttributes = CustomAttributeData.GetCustomAttributes(property).ToArray();
+                foreach (var customAttributeData in customAttributes)
+                {
+                    newProperty.SetCustomAttribute(DefineCustomAttribute(customAttributeData));
+                }
             }
 
             var type = typeBuilder.CreateType();
             return type ?? throw new InvalidOperationException($"Unable to generate a re-parented type for {originalType}.");
+        }
+
+        private static CustomAttributeBuilder DefineCustomAttribute(CustomAttributeData customAttributeData)
+        {
+            // based on https://stackoverflow.com/questions/2365470/using-reflection-emit-to-copy-a-custom-attribute-to-another-method
+            var namedFieldValues = new List<object?>();
+            var fields = new List<FieldInfo>();
+            var constructorArguments = customAttributeData
+                .ConstructorArguments
+                .Select(ctorArg => ctorArg.Value)
+                .ToList();
+
+            if (customAttributeData.NamedArguments.Count > 0)
+            {
+                var possibleFields = customAttributeData.GetType().GetFields();
+                foreach (var customAttributeNamedArgument in customAttributeData.NamedArguments)
+                {
+                    foreach (var fieldInfo in possibleFields)
+                    {
+                        if (string.Compare(fieldInfo.Name, customAttributeNamedArgument.MemberInfo.Name,
+                            StringComparison.Ordinal) != 0)
+                            continue;
+
+                        fields.Add(fieldInfo);
+                        namedFieldValues.Add(customAttributeNamedArgument.TypedValue.Value);
+                    }
+                }
+            }
+
+            return namedFieldValues.Count > 0
+                ? new CustomAttributeBuilder(
+                    customAttributeData.Constructor,
+                    constructorArguments.ToArray(), fields.ToArray(),
+                    namedFieldValues.ToArray())
+                : new CustomAttributeBuilder(customAttributeData.Constructor, constructorArguments.ToArray());
         }
     }
 }
