@@ -164,39 +164,41 @@ namespace demo
             return type ?? throw new InvalidOperationException($"Unable to generate a re-parented type for {originalType}.");
         }
 
-        private static CustomAttributeBuilder DefineCustomAttribute(CustomAttributeData customAttributeData)
+        private static CustomAttributeBuilder DefineCustomAttribute(CustomAttributeData attributeData)
         {
-            // based on https://stackoverflow.com/questions/2365470/using-reflection-emit-to-copy-a-custom-attribute-to-another-method
-            var namedFieldValues = new List<object?>();
-            var fields = new List<FieldInfo>();
-            var constructorArguments = customAttributeData
-                .ConstructorArguments
-                .Select(ctorArg => ctorArg.Value)
-                .ToList();
+            // based on https://stackoverflow.com/a/3916313/8607180
 
-            if (customAttributeData.NamedArguments.Count > 0)
+            var constructorArguments = attributeData.ConstructorArguments
+                .Select(argument => argument.Value)
+                .ToArray();
+
+            var propertyArguments = new List<PropertyInfo>();
+            var propertyArgumentValues = new List<object?>();
+            var fieldArguments = new List<FieldInfo>();
+            var fieldArgumentValues = new List<object?>();
+
+            foreach (var argument in attributeData.NamedArguments ?? Array.Empty<CustomAttributeNamedArgument>())
             {
-                var possibleFields = customAttributeData.GetType().GetFields();
-                foreach (var customAttributeNamedArgument in customAttributeData.NamedArguments)
-                {
-                    foreach (var fieldInfo in possibleFields)
-                    {
-                        if (string.Compare(fieldInfo.Name, customAttributeNamedArgument.MemberInfo.Name,
-                            StringComparison.Ordinal) != 0)
-                            continue;
+                var fieldInfo = argument.MemberInfo as FieldInfo;
+                var propertyInfo = argument.MemberInfo as PropertyInfo;
 
-                        fields.Add(fieldInfo);
-                        namedFieldValues.Add(customAttributeNamedArgument.TypedValue.Value);
-                    }
+                if (fieldInfo != null)
+                {
+                    fieldArguments.Add(fieldInfo);
+                    fieldArgumentValues.Add(argument.TypedValue.Value);
+                }
+                else if (propertyInfo != null)
+                {
+                    propertyArguments.Add(propertyInfo);
+                    propertyArgumentValues.Add(argument.TypedValue.Value);
                 }
             }
 
-            return namedFieldValues.Count > 0
-                ? new CustomAttributeBuilder(
-                    customAttributeData.Constructor,
-                    constructorArguments.ToArray(), fields.ToArray(),
-                    namedFieldValues.ToArray())
-                : new CustomAttributeBuilder(customAttributeData.Constructor, constructorArguments.ToArray());
+            return new CustomAttributeBuilder(
+                attributeData.Constructor, constructorArguments,
+                propertyArguments.ToArray(), propertyArgumentValues.ToArray(),
+                fieldArguments.ToArray(), fieldArgumentValues.ToArray()
+            );
         }
     }
 }
